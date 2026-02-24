@@ -145,6 +145,7 @@ See [CLAUDE.md](CLAUDE.md) for code conventions and architecture details.
 | Doc | What it covers |
 |-----|---------------|
 | [Setup Guide](SETUP.md) | Detailed installation and configuration |
+| [Interacting with AO](docs/INTERACTING-WITH-AO.md) | CLI workflow: send tasks, markdown specs, no human in the loop |
 | [Examples](examples/) | Config templates (GitHub, Linear, multi-project, auto-merge) |
 | [CLAUDE.md](CLAUDE.md) | Architecture, conventions, plugin pattern |
 | [Troubleshooting](TROUBLESHOOTING.md) | Common issues and fixes |
