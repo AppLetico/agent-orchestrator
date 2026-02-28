@@ -9,6 +9,7 @@ import { getSessionsDir, getProjectBaseDir } from "../paths.js";
 import {
   SessionNotRestorableError,
   WorkspaceMissingError,
+  isIssueNotFoundError,
   type OrchestratorConfig,
   type PluginRegistry,
   type Runtime,
@@ -158,6 +159,76 @@ describe("spawn", () => {
 
     expect(session.branch).toBe("feat/INT-100");
     expect(session.issueId).toBe("INT-100");
+  });
+
+  it("sanitizes free-text issueId into a valid branch slug", async () => {
+    const sm = createSessionManager({ config, registry: mockRegistry });
+
+    const session = await sm.spawn({ projectId: "my-app", issueId: "fix login bug" });
+
+    expect(session.branch).toBe("feat/fix-login-bug");
+  });
+
+  it("preserves casing for branch-safe issue IDs without tracker", async () => {
+    const sm = createSessionManager({ config, registry: mockRegistry });
+
+    const session = await sm.spawn({ projectId: "my-app", issueId: "INT-9999" });
+
+    expect(session.branch).toBe("feat/INT-9999");
+  });
+
+  it("sanitizes issueId with special characters", async () => {
+    const sm = createSessionManager({ config, registry: mockRegistry });
+
+    const session = await sm.spawn({
+      projectId: "my-app",
+      issueId: "Fix: user can't login (SSO)",
+    });
+
+    expect(session.branch).toBe("feat/fix-user-can-t-login-sso");
+  });
+
+  it("truncates long slugs to 60 characters", async () => {
+    const sm = createSessionManager({ config, registry: mockRegistry });
+
+    const session = await sm.spawn({
+      projectId: "my-app",
+      issueId: "this is a very long issue description that should be truncated to sixty characters maximum",
+    });
+
+    expect(session.branch!.replace("feat/", "").length).toBeLessThanOrEqual(60);
+  });
+
+  it("does not leave trailing dash after truncation", async () => {
+    const sm = createSessionManager({ config, registry: mockRegistry });
+
+    // Craft input where the 60th char falls on a word boundary (dash)
+    const session = await sm.spawn({
+      projectId: "my-app",
+      issueId: "ab ".repeat(30), // "ab ab ab ..." → "ab-ab-ab-..." truncated at 60
+    });
+
+    const slug = session.branch!.replace("feat/", "");
+    expect(slug).not.toMatch(/-$/);
+    expect(slug).not.toMatch(/^-/);
+  });
+
+  it("falls back to sessionId when issueId sanitizes to empty string", async () => {
+    const sm = createSessionManager({ config, registry: mockRegistry });
+
+    const session = await sm.spawn({ projectId: "my-app", issueId: "!!!" });
+
+    // Slug is empty after sanitization, falls back to sessionId
+    expect(session.branch).toMatch(/^feat\/app-\d+$/);
+  });
+
+  it("sanitizes issueId containing '..' (invalid in git branch names)", async () => {
+    const sm = createSessionManager({ config, registry: mockRegistry });
+
+    const session = await sm.spawn({ projectId: "my-app", issueId: "foo..bar" });
+
+    // '..' is invalid in git refs, so it should be slugified
+    expect(session.branch).toBe("feat/foo-bar");
   });
 
   it("uses tracker.branchName when tracker is available", async () => {
@@ -385,9 +456,46 @@ describe("spawn", () => {
 
     expect(session.issueId).toBe("INT-9999");
     expect(session.branch).toBe("feat/INT-9999");
+    // tracker.branchName and generatePrompt should NOT be called when issue wasn't resolved
+    expect(mockTracker.branchName).not.toHaveBeenCalled();
+    expect(mockTracker.generatePrompt).not.toHaveBeenCalled();
     // Workspace and runtime should still be created
     expect(mockWorkspace.create).toHaveBeenCalled();
     expect(mockRuntime.create).toHaveBeenCalled();
+  });
+
+  it("succeeds with ad-hoc free-text when tracker returns 'invalid issue format'", async () => {
+    const mockTracker: Tracker = {
+      name: "mock-tracker",
+      getIssue: vi.fn().mockRejectedValue(new Error("invalid issue format: fix login bug")),
+      isCompleted: vi.fn().mockResolvedValue(false),
+      issueUrl: vi.fn().mockReturnValue(""),
+      branchName: vi.fn().mockReturnValue(""),
+      generatePrompt: vi.fn().mockResolvedValue(""),
+    };
+
+    const registryWithTracker: PluginRegistry = {
+      ...mockRegistry,
+      get: vi.fn().mockImplementation((slot: string) => {
+        if (slot === "runtime") return mockRuntime;
+        if (slot === "agent") return mockAgent;
+        if (slot === "workspace") return mockWorkspace;
+        if (slot === "tracker") return mockTracker;
+        return null;
+      }),
+    };
+
+    const sm = createSessionManager({
+      config,
+      registry: registryWithTracker,
+    });
+
+    const session = await sm.spawn({ projectId: "my-app", issueId: "fix login bug" });
+
+    expect(session.issueId).toBe("fix login bug");
+    expect(session.branch).toBe("feat/fix-login-bug");
+    expect(mockTracker.branchName).not.toHaveBeenCalled();
+    expect(mockWorkspace.create).toHaveBeenCalled();
   });
 
   it("fails on tracker auth errors", async () => {
@@ -434,6 +542,131 @@ describe("spawn", () => {
     // Uses session/{sessionId} to avoid conflicts with default branch
     expect(session.branch).toMatch(/^session\/app-\d+$/);
     expect(session.branch).not.toBe("main");
+  });
+
+  it("sends prompt post-launch when agent.promptDelivery is 'post-launch'", async () => {
+    vi.useFakeTimers();
+    const postLaunchAgent = {
+      ...mockAgent,
+      promptDelivery: "post-launch" as const,
+    };
+    const registryWithPostLaunch: PluginRegistry = {
+      ...mockRegistry,
+      get: vi.fn().mockImplementation((slot: string) => {
+        if (slot === "runtime") return mockRuntime;
+        if (slot === "agent") return postLaunchAgent;
+        if (slot === "workspace") return mockWorkspace;
+        return null;
+      }),
+    };
+
+    const sm = createSessionManager({ config, registry: registryWithPostLaunch });
+    const spawnPromise = sm.spawn({ projectId: "my-app", prompt: "Fix the bug" });
+    await vi.advanceTimersByTimeAsync(5_000);
+    await spawnPromise;
+
+    // Prompt should be sent via runtime.sendMessage, not included in launch command
+    expect(mockRuntime.sendMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ id: expect.any(String) }),
+      expect.stringContaining("Fix the bug"),
+    );
+    vi.useRealTimers();
+  });
+
+  it("does not send prompt post-launch when agent.promptDelivery is not set", async () => {
+    const sm = createSessionManager({ config, registry: mockRegistry });
+    await sm.spawn({ projectId: "my-app", prompt: "Fix the bug" });
+
+    // Default agent (no promptDelivery) should NOT trigger sendMessage for prompt
+    expect(mockRuntime.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it("does not send prompt post-launch when no prompt is provided", async () => {
+    vi.useFakeTimers();
+    const postLaunchAgent = {
+      ...mockAgent,
+      promptDelivery: "post-launch" as const,
+    };
+    const registryWithPostLaunch: PluginRegistry = {
+      ...mockRegistry,
+      get: vi.fn().mockImplementation((slot: string) => {
+        if (slot === "runtime") return mockRuntime;
+        if (slot === "agent") return postLaunchAgent;
+        if (slot === "workspace") return mockWorkspace;
+        return null;
+      }),
+    };
+
+    const sm = createSessionManager({ config, registry: registryWithPostLaunch });
+    const spawnPromise = sm.spawn({ projectId: "my-app" }); // No prompt
+    await vi.advanceTimersByTimeAsync(5_000);
+    await spawnPromise;
+
+    expect(mockRuntime.sendMessage).not.toHaveBeenCalled();
+    vi.useRealTimers();
+  });
+
+  it("does not destroy session when post-launch prompt delivery fails", async () => {
+    vi.useFakeTimers();
+    const failingRuntime: Runtime = {
+      ...mockRuntime,
+      sendMessage: vi.fn().mockRejectedValue(new Error("tmux send failed")),
+    };
+    const postLaunchAgent = {
+      ...mockAgent,
+      promptDelivery: "post-launch" as const,
+    };
+    const registryWithFailingSend: PluginRegistry = {
+      ...mockRegistry,
+      get: vi.fn().mockImplementation((slot: string) => {
+        if (slot === "runtime") return failingRuntime;
+        if (slot === "agent") return postLaunchAgent;
+        if (slot === "workspace") return mockWorkspace;
+        return null;
+      }),
+    };
+
+    const sm = createSessionManager({ config, registry: registryWithFailingSend });
+    const spawnPromise = sm.spawn({ projectId: "my-app", prompt: "Fix the bug" });
+    await vi.advanceTimersByTimeAsync(5_000);
+    const session = await spawnPromise;
+
+    // Session should still be returned successfully despite sendMessage failure
+    expect(session.id).toBe("app-1");
+    expect(session.status).toBe("spawning");
+    // Runtime should NOT have been destroyed
+    expect(failingRuntime.destroy).not.toHaveBeenCalled();
+    vi.useRealTimers();
+  });
+
+  it("waits before sending post-launch prompt", async () => {
+    vi.useFakeTimers();
+    const postLaunchAgent = {
+      ...mockAgent,
+      promptDelivery: "post-launch" as const,
+    };
+    const registryWithPostLaunch: PluginRegistry = {
+      ...mockRegistry,
+      get: vi.fn().mockImplementation((slot: string) => {
+        if (slot === "runtime") return mockRuntime;
+        if (slot === "agent") return postLaunchAgent;
+        if (slot === "workspace") return mockWorkspace;
+        return null;
+      }),
+    };
+
+    const sm = createSessionManager({ config, registry: registryWithPostLaunch });
+    const spawnPromise = sm.spawn({ projectId: "my-app", prompt: "Fix the bug" });
+
+    // Advance only 4s — not enough, message should not have been sent yet
+    await vi.advanceTimersByTimeAsync(4_000);
+    expect(mockRuntime.sendMessage).not.toHaveBeenCalled();
+
+    // Advance the remaining 1s — now it should fire
+    await vi.advanceTimersByTimeAsync(1_000);
+    await spawnPromise;
+    expect(mockRuntime.sendMessage).toHaveBeenCalled();
+    vi.useRealTimers();
   });
 });
 
@@ -830,6 +1063,70 @@ describe("cleanup", () => {
 
     expect(result.killed).toHaveLength(0);
     expect(result.skipped).toContain("app-1");
+  });
+
+  it("skips orchestrator sessions by role metadata", async () => {
+    const deadRuntime: Runtime = {
+      ...mockRuntime,
+      isAlive: vi.fn().mockResolvedValue(false),
+    };
+    const registryWithDead: PluginRegistry = {
+      ...mockRegistry,
+      get: vi.fn().mockImplementation((slot: string) => {
+        if (slot === "runtime") return deadRuntime;
+        if (slot === "agent") return mockAgent;
+        if (slot === "workspace") return mockWorkspace;
+        return null;
+      }),
+    };
+
+    // Session with role=orchestrator but a name that does NOT end in "-orchestrator"
+    // so only the role metadata check can protect it (not the name fallback)
+    writeMetadata(sessionsDir, "app-99", {
+      worktree: "/tmp",
+      branch: "main",
+      status: "working",
+      role: "orchestrator",
+      project: "my-app",
+      runtimeHandle: JSON.stringify(makeHandle("rt-orch")),
+    });
+
+    const sm = createSessionManager({ config, registry: registryWithDead });
+    const result = await sm.cleanup();
+
+    expect(result.killed).toHaveLength(0);
+    expect(result.skipped).toContain("app-99");
+  });
+
+  it("skips orchestrator sessions by name fallback (no role metadata)", async () => {
+    const deadRuntime: Runtime = {
+      ...mockRuntime,
+      isAlive: vi.fn().mockResolvedValue(false),
+    };
+    const registryWithDead: PluginRegistry = {
+      ...mockRegistry,
+      get: vi.fn().mockImplementation((slot: string) => {
+        if (slot === "runtime") return deadRuntime;
+        if (slot === "agent") return mockAgent;
+        if (slot === "workspace") return mockWorkspace;
+        return null;
+      }),
+    };
+
+    // Pre-existing orchestrator session without role field
+    writeMetadata(sessionsDir, "app-orchestrator", {
+      worktree: "/tmp",
+      branch: "main",
+      status: "working",
+      project: "my-app",
+      runtimeHandle: JSON.stringify(makeHandle("rt-orch")),
+    });
+
+    const sm = createSessionManager({ config, registry: registryWithDead });
+    const result = await sm.cleanup();
+
+    expect(result.killed).toHaveLength(0);
+    expect(result.skipped).toContain("app-orchestrator");
   });
 
   it("kills sessions with dead runtimes", async () => {
@@ -1421,5 +1718,35 @@ describe("PluginRegistry.loadBuiltins importFn", () => {
     // Should have attempted to import builtin plugins via the provided importFn
     expect(importedPackages.length).toBeGreaterThan(0);
     expect(importedPackages).toContain("@composio/ao-plugin-runtime-tmux");
+  });
+});
+
+describe("isIssueNotFoundError", () => {
+  it("matches 'Issue X not found'", () => {
+    expect(isIssueNotFoundError(new Error("Issue INT-9999 not found"))).toBe(true);
+  });
+
+  it("matches 'could not resolve to an Issue'", () => {
+    expect(isIssueNotFoundError(new Error("Could not resolve to an Issue"))).toBe(true);
+  });
+
+  it("matches 'no issue with identifier'", () => {
+    expect(isIssueNotFoundError(new Error("No issue with identifier ABC-123"))).toBe(true);
+  });
+
+  it("matches 'invalid issue format'", () => {
+    expect(isIssueNotFoundError(new Error("Invalid issue format: fix login bug"))).toBe(true);
+  });
+
+  it("does not match unrelated errors", () => {
+    expect(isIssueNotFoundError(new Error("Unauthorized"))).toBe(false);
+    expect(isIssueNotFoundError(new Error("Network timeout"))).toBe(false);
+    expect(isIssueNotFoundError(new Error("API key not found"))).toBe(false);
+  });
+
+  it("returns false for non-error values", () => {
+    expect(isIssueNotFoundError(null)).toBe(false);
+    expect(isIssueNotFoundError(undefined)).toBe(false);
+    expect(isIssueNotFoundError("string")).toBe(false);
   });
 });

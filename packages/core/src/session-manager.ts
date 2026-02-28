@@ -391,10 +391,22 @@ export function createSessionManager(deps: SessionManagerDeps): SessionManager {
     let branch: string;
     if (spawnConfig.branch) {
       branch = spawnConfig.branch;
-    } else if (spawnConfig.issueId && plugins.tracker) {
+    } else if (spawnConfig.issueId && plugins.tracker && resolvedIssue) {
       branch = plugins.tracker.branchName(spawnConfig.issueId, project);
     } else if (spawnConfig.issueId) {
-      branch = `feat/${spawnConfig.issueId}`;
+      // If the issueId is already branch-safe (e.g. "INT-9999"), use as-is.
+      // Otherwise sanitize free-text (e.g. "fix login bug") into a valid slug.
+      const id = spawnConfig.issueId;
+      const isBranchSafe =
+        /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(id) && !id.includes("..");
+      const slug = isBranchSafe
+        ? id
+        : id
+            .toLowerCase()
+            .replace(/[^a-z0-9]+/g, "-")
+            .slice(0, 60)
+            .replace(/^-+|-+$/g, "");
+      branch = `feat/${slug || sessionId}`;
     } else {
       branch = `session/${sessionId}`;
     }
@@ -555,6 +567,21 @@ export function createSessionManager(deps: SessionManagerDeps): SessionManager {
       throw err;
     }
 
+    // Send initial prompt post-launch for agents that need it (e.g. Claude Code
+    // exits after -p, so we send the prompt after it starts in interactive mode).
+    // This is intentionally outside the try/catch above — a prompt delivery failure
+    // should NOT destroy the session. The agent is running; user can retry with `ao send`.
+    if (plugins.agent.promptDelivery === "post-launch" && agentLaunchConfig.prompt) {
+      try {
+        // Wait for agent to start and be ready for input
+        await new Promise((resolve) => setTimeout(resolve, 5_000));
+        await plugins.runtime.sendMessage(handle, agentLaunchConfig.prompt);
+      } catch {
+        // Non-fatal: agent is running but didn't receive the initial prompt.
+        // User can retry with `ao send`.
+      }
+    }
+
     return session;
   }
 
@@ -605,11 +632,12 @@ export function createSessionManager(deps: SessionManagerDeps): SessionManager {
       writeFileSync(systemPromptFile, orchestratorConfig.systemPrompt, "utf-8");
     }
 
-    // Get agent launch config — uses systemPromptFile, no issue/tracker interaction
+    // Get agent launch config — uses systemPromptFile, no issue/tracker interaction.
+    // Orchestrator ALWAYS gets skip permissions — it must run ao CLI commands autonomously.
     const agentLaunchConfig = {
       sessionId,
       projectConfig: project,
-      permissions: project.agentConfig?.permissions,
+      permissions: "skip" as const,
       model: project.agentConfig?.orchestratorModel ?? project.agentConfig?.model,
       systemPromptFile,
     };
@@ -652,6 +680,7 @@ export function createSessionManager(deps: SessionManagerDeps): SessionManager {
         worktree: project.path,
         branch: project.defaultBranch,
         status: "working",
+        role: "orchestrator",
         tmuxName,
         project: orchestratorConfig.projectId,
         createdAt: new Date().toISOString(),
@@ -816,6 +845,17 @@ export function createSessionManager(deps: SessionManagerDeps): SessionManager {
 
     for (const session of sessions) {
       try {
+        // Never clean up orchestrator sessions — they manage the lifecycle.
+        // Check explicit role metadata first, fall back to naming convention
+        // for pre-existing sessions spawned before the role field was added.
+        if (
+          session.metadata["role"] === "orchestrator" ||
+          session.id.endsWith("-orchestrator")
+        ) {
+          result.skipped.push(session.id);
+          continue;
+        }
+
         const project = config.projects[session.projectId];
         if (!project) {
           result.skipped.push(session.id);
@@ -985,6 +1025,7 @@ export function createSessionManager(deps: SessionManagerDeps): SessionManager {
         worktree: raw["worktree"] ?? "",
         branch: raw["branch"] ?? "",
         status: raw["status"] ?? "killed",
+        role: raw["role"],
         tmuxName: raw["tmuxName"],
         issue: raw["issue"],
         pr: raw["pr"],

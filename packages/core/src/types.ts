@@ -265,6 +265,15 @@ export interface Agent {
   /** Process name to look for (e.g. "claude", "codex", "aider") */
   readonly processName: string;
 
+  /**
+   * How the initial prompt should be delivered to the agent.
+   * - "inline" (default): prompt is included in the launch command (e.g. -p flag)
+   * - "post-launch": prompt is sent via runtime.sendMessage() after the agent starts,
+   *   keeping the agent in interactive mode. Use this for agents where inlining
+   *   the prompt causes one-shot/exit behavior (e.g. Claude Code's -p flag).
+   */
+  readonly promptDelivery?: "inline" | "post-launch";
+
   /** Get the shell command to launch this agent */
   getLaunchCommand(config: AgentLaunchConfig): string;
 
@@ -972,6 +981,7 @@ export interface SessionMetadata {
   createdAt?: string;
   runtimeHandle?: string;
   restoredAt?: string;
+  role?: string; // "orchestrator" for orchestrator sessions
   dashboardPort?: number;
   terminalWsPort?: number;
   directTerminalWsPort?: number;
@@ -1064,7 +1074,9 @@ export function isIssueNotFoundError(err: unknown): boolean {
     // GitHub: "no issue found" or "could not resolve to an Issue"
     message.includes("could not resolve to an issue") ||
     // Linear: "Issue <id> not found" or "No issue with identifier"
-    message.includes("no issue with identifier")
+    message.includes("no issue with identifier") ||
+    // GitHub: "invalid issue format" (ad-hoc free-text strings)
+    message.includes("invalid issue format")
   );
 }
 
