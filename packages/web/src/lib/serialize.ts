@@ -44,6 +44,11 @@ export function sessionToDashboard(session: Session): DashboardSession {
   const agentSummary = session.agentInfo?.summary;
   const summary = agentSummary ?? session.metadata["summary"] ?? null;
 
+  const pr = session.pr ? basicPRToDashboard(session.pr) : null;
+  // Lifecycle already knows merged/closed — set PR state so UI and cache don't show "mergeable: yes"
+  if (pr && session.status === "merged") pr.state = "merged";
+  else if (pr && session.status === "killed") pr.state = "closed";
+
   return {
     id: session.id,
     projectId: session.projectId,
@@ -60,7 +65,7 @@ export function sessionToDashboard(session: Session): DashboardSession {
       : false,
     createdAt: session.createdAt.toISOString(),
     lastActivityAt: session.lastActivityAt.toISOString(),
-    pr: session.pr ? basicPRToDashboard(session.pr) : null,
+    pr,
     metadata: session.metadata,
   };
 }

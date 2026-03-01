@@ -7,6 +7,7 @@ import {
   type OrchestratorConfig,
   type PluginRegistry,
   type SCM,
+  type Tracker,
 } from "@composio/ao-core";
 
 // ── Mock Data ─────────────────────────────────────────────────────────
@@ -117,9 +118,28 @@ const mockSCM: SCM = {
   })),
 };
 
+const mockTracker: Tracker = {
+  name: "linear",
+  getIssue: vi.fn(async () => ({ id: "INT-1", title: "Stub", status: "open", url: "https://example" })),
+  isCompleted: vi.fn(async () => false),
+  issueUrl: vi.fn(() => "https://example"),
+  branchName: vi.fn((id: string) => `feat/${id}`),
+  generatePrompt: vi.fn(async () => "issue"),
+  createIssue: vi.fn(async (input) => ({
+    id: `INT-${Math.floor(Math.random() * 1000)}`,
+    title: input.title,
+    status: "open",
+    url: "https://linear.app/acme/issue/INT-1",
+  })),
+};
+
 const mockRegistry: PluginRegistry = {
   register: vi.fn(),
-  get: vi.fn(() => mockSCM) as PluginRegistry["get"],
+  get: vi.fn((slot: string) => {
+    if (slot === "scm") return mockSCM;
+    if (slot === "tracker") return mockTracker;
+    return null;
+  }) as PluginRegistry["get"],
   list: vi.fn(() => []),
   loadBuiltins: vi.fn(async () => {}),
   loadFromConfig: vi.fn(async () => {}),
@@ -138,6 +158,7 @@ const mockConfig: OrchestratorConfig = {
       defaultBranch: "main",
       sessionPrefix: "my-app",
       scm: { plugin: "github" },
+      tracker: { plugin: "linear" },
     },
   },
   notifiers: {},
@@ -152,6 +173,7 @@ vi.mock("@/lib/services", () => ({
     sessionManager: mockSessionManager,
   })),
   getSCM: vi.fn(() => mockSCM),
+  getTracker: vi.fn(() => mockTracker),
 }));
 
 // ── Import routes after mocking ───────────────────────────────────────

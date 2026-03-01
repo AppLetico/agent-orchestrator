@@ -58,20 +58,36 @@ export interface PromptBuildConfig {
 
   /** Explicit user prompt (appended last) */
   userPrompt?: string;
+
+  /** Prompt purpose: worker (default) */
+  role?: "worker";
 }
 
 // =============================================================================
 // LAYER 2: CONFIG-DERIVED CONTEXT
 // =============================================================================
 
+function readProjectMemory(project: ProjectConfig): string | null {
+  const memoryFile = project.projectMemoryFile ?? "docs/PROJECT_MEMORY.md";
+  const filePath = resolve(project.path, memoryFile);
+  try {
+    const content = readFileSync(filePath, "utf-8").trim();
+    return content || null;
+  } catch {
+    return null;
+  }
+}
+
 function buildConfigLayer(config: PromptBuildConfig): string {
   const { project, projectId, issueId, issueContext } = config;
   const lines: string[] = [];
+  const memoryFile = project.projectMemoryFile ?? "docs/PROJECT_MEMORY.md";
 
   lines.push("## Project Context");
   lines.push(`- Project: ${project.name ?? projectId}`);
   lines.push(`- Repository: ${project.repo}`);
   lines.push(`- Default branch: ${project.defaultBranch}`);
+  lines.push(`- Project memory: ${memoryFile}`);
 
   if (project.tracker) {
     lines.push(`- Tracker: ${project.tracker.plugin}`);

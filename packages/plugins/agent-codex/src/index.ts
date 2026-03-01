@@ -572,8 +572,14 @@ function createCodexAgent(): Agent {
       const binary = resolvedBinary ?? "codex";
       const parts: string[] = [shellEscape(binary)];
 
-      appendApprovalFlags(parts, config.permissions as string | undefined);
-      appendModelFlags(parts, config.model);
+      if (config.permissions === "skip") {
+        // No approval prompts and no sandbox (worktree .git can be outside sandbox scope).
+        parts.push("--yolo");
+      }
+
+      if (config.model) {
+        parts.push("--model", shellEscape(config.model));
+      }
 
       if (config.systemPromptFile) {
         // Codex reads developer instructions from a file via config override
@@ -604,6 +610,13 @@ function createCodexAgent(): Agent {
       const openaiKey = process.env["OPENAI_API_KEY"];
       if (openaiKey) {
         env["OPENAI_API_KEY"] = openaiKey;
+      }
+
+      // Forward GitHub token so agent can create PRs via gh (e.g. gh pr create).
+      const ghToken = process.env["GH_TOKEN"] ?? process.env["GITHUB_TOKEN"];
+      if (ghToken) {
+        env["GH_TOKEN"] = ghToken;
+        env["GITHUB_TOKEN"] = ghToken;
       }
 
       // Prepend ~/.ao/bin to PATH so our gh/git wrappers intercept commands.

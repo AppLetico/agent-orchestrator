@@ -13,19 +13,21 @@ projects:
   ao:
     name: Agent Orchestrator
     repo: ComposioHQ/agent-orchestrator
-    path: ~/agent-orchestrator
+    path: ~/workspace/agent-orchestrator
     defaultBranch: main
     sessionPrefix: ao
     scm:
       plugin: github
     tracker:
       plugin: linear
-      teamId: "2a6e9b1b-19cd-4e30-b5bd-7b34dc491c7e"
+      teamId: "faabef33-fdda-4d42-9d2c-e4d21754d446"
     symlinks: [.claude]
     postCreate:
       - "pnpm install"
     agentConfig:
       permissions: skip
+      model: gpt-5.3-codex         # worker agents (GPT-5.3-Codex)
+      orchestratorModel: gpt-5.2   # orchestrator session (GPT-5.2)
 
   # clasper-core — AO builds this repo (agents work on issues here)
   clasper-core:
@@ -37,9 +39,35 @@ projects:
     scm:
       plugin: github
     tracker:
-      plugin: github
+      plugin: linear
+      teamId: "faabef33-fdda-4d42-9d2c-e4d21754d446"
     symlinks: [.claude]
     postCreate:
       - "npm install"
     agentConfig:
       permissions: skip
+      model: gpt-5.3-codex         # worker agents (GPT-5.3-Codex)
+      orchestratorModel: gpt-5.2   # orchestrator session (GPT-5.2)
+    # Self-healing CI and review: agent gets instructions to fix failures/comments
+    reactions:
+      ci-failed:
+        auto: true
+        action: send-to-agent
+        message: "CI is failing on your PR. Run `gh pr checks` to see which job failed. Fix (npm test, npm run typecheck, npm run build, npm run lint), push, and re-run checks if needed."
+        retries: 3
+        escalateAfter: 2
+      changes-requested:
+        auto: true
+        action: send-to-agent
+        message: "There are review comments on your PR. Run `gh pr view --comments` and check the PR on GitHub for inline comments. Address each one, push fixes, and reply to the comments."
+        escalateAfter: "30m"
+      bugbot-comments:
+        auto: true
+        action: send-to-agent
+        message: "Automated review (e.g. Cursor Bugbot) left comments on your PR. Fix the flagged issues and push."
+        escalateAfter: "30m"
+      approved-and-green:
+        auto: true
+        action: notify
+        priority: action
+        message: "PR is approved and CI green — ready to merge."

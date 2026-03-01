@@ -12,7 +12,7 @@
  */
 
 import { statSync, existsSync, readdirSync, writeFileSync, mkdirSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import {
   isIssueNotFoundError,
   isRestorable,
@@ -466,12 +466,14 @@ export function createSessionManager(deps: SessionManagerDeps): SessionManager {
       issueId: spawnConfig.issueId,
       issueContext,
       userPrompt: spawnConfig.prompt,
+      role: "worker",
     });
 
     // Get agent launch config and create runtime — clean up workspace on failure
     const agentLaunchConfig = {
       sessionId,
       projectConfig: project,
+      role: "worker" as const,
       issueId: spawnConfig.issueId,
       prompt: composedPrompt ?? spawnConfig.prompt,
       permissions: project.agentConfig?.permissions,
@@ -637,7 +639,8 @@ export function createSessionManager(deps: SessionManagerDeps): SessionManager {
     const agentLaunchConfig = {
       sessionId,
       projectConfig: project,
-      permissions: "skip" as const,
+      role: "orchestrator" as const,
+      permissions: project.agentConfig?.permissions,
       model: project.agentConfig?.orchestratorModel ?? project.agentConfig?.model,
       systemPromptFile,
     };
@@ -1108,12 +1111,17 @@ export function createSessionManager(deps: SessionManagerDeps): SessionManager {
 
     // 7. Get launch command — try restore command first, fall back to fresh launch
     let launchCommand: string;
+    const isOrchestratorSession = sessionId.endsWith("-orchestrator");
+    const model = isOrchestratorSession
+      ? (project.agentConfig?.orchestratorModel ?? project.agentConfig?.model)
+      : project.agentConfig?.model;
     const agentLaunchConfig = {
       sessionId,
       projectConfig: project,
+      role: isOrchestratorSession ? ("orchestrator" as const) : ("worker" as const),
       issueId: session.issueId ?? undefined,
       permissions: project.agentConfig?.permissions,
-      model: project.agentConfig?.model,
+      model,
     };
 
     if (plugins.agent.getRestoreCommand) {
@@ -1169,5 +1177,15 @@ export function createSessionManager(deps: SessionManagerDeps): SessionManager {
     return restoredSession;
   }
 
-  return { spawn, spawnOrchestrator, restore, list, get, kill, cleanup, send, ensurePRDetected };
+  return {
+    spawn,
+    spawnOrchestrator,
+    restore,
+    list,
+    get,
+    kill,
+    cleanup,
+    send,
+    ensurePRDetected,
+  };
 }

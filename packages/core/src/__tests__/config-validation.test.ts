@@ -320,6 +320,28 @@ describe("Config Schema Validation", () => {
     expect(() => validateConfig(missingBranch)).not.toThrow();
   });
 
+  it("accepts projectMemoryFile and orchestratorModel", () => {
+    const config = {
+      projects: {
+        proj1: {
+          path: "/repos/test",
+          repo: "org/test",
+          defaultBranch: "main",
+          projectMemoryFile: "docs/PROJECT_MEMORY.md",
+          agentConfig: {
+            model: "gpt-5",
+            orchestratorModel: "gpt-5-mini",
+          },
+        },
+      },
+    };
+
+    expect(() => validateConfig(config)).not.toThrow();
+    const validated = validateConfig(config);
+    expect(validated.projects.proj1.projectMemoryFile).toBe("docs/PROJECT_MEMORY.md");
+    expect(validated.projects.proj1.agentConfig?.orchestratorModel).toBe("gpt-5-mini");
+  });
+
   it("sessionPrefix is optional", () => {
     const config = {
       projects: {

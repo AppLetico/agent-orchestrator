@@ -250,8 +250,16 @@ export function SessionCard({ session, onSend, onKill, onMerge, onRestore }: Ses
                 <br />
                 <span className="text-[var(--color-status-ready)]">+{pr.additions}</span>{" "}
                 <span className="text-[var(--color-status-error)]">-{pr.deletions}</span>
-                {" · "}mergeable: {pr.mergeability.mergeable ? "yes" : "no"}
-                {" · "}review: {pr.reviewDecision}
+                {pr.state === "merged"
+                  ? " · merged"
+                  : pr.state === "closed"
+                    ? " · closed"
+                    : (
+                      <>
+                        {" · "}mergeable: {pr.mergeability.mergeable ? "yes" : "no"}
+                        {" · "}review: {pr.reviewDecision}
+                      </>
+                    )}
               </p>
             </DetailSection>
           )}

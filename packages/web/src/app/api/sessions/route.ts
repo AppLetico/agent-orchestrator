@@ -29,8 +29,10 @@ export async function GET(request: Request) {
       sessionManager,
     });
 
-    // Filter out orchestrator sessions — they get their own button, not a card
-    let workerSessions = coreSessions.filter((s) => !s.id.endsWith("-orchestrator"));
+    // Filter out orchestrator sessions — they have dedicated entry points
+    let workerSessions = coreSessions.filter(
+      (s) => !s.id.endsWith("-orchestrator"),
+    );
 
     // Convert to dashboard format
     let dashboardSessions = workerSessions.map(sessionToDashboard);

@@ -26,11 +26,18 @@ cd ~/workspace/agent-orchestrator
 ao start clasper-core    # or: ao start ao
 ```
 
-**To give Codex your OpenAI API key (no login prompt in the terminal):** load `.env.local` before starting so the server has `OPENAI_API_KEY`:
+**To load env (OPENAI_API_KEY, LINEAR_API_KEY, GITHUB_TOKEN) and start:** use the Makefile so you don't have to type `set -a && source .env.local && set +a` every time:
 
 ```bash
 cd ~/workspace/agent-orchestrator
-set -a && source .env.local && set +a && ao start clasper-core
+make start-clasper    # start for clasper-core; or: make start (for ao project)
+```
+
+Or run any other `ao` command with env loaded:
+
+```bash
+make run CMD="ao status"
+make spawn PROJECT=clasper-core ISSUE=CLA-5
 ```
 
 The dashboard runs at `http://localhost:3000`. You can use it to view status; interaction can be done entirely from the CLI (see below).
@@ -44,8 +51,11 @@ Create a new agent (worktree + tmux session + Codex/agent process):
 ```bash
 cd ~/workspace/agent-orchestrator
 ao spawn clasper-core           # ad-hoc, no issue
-ao spawn clasper-core 123       # with GitHub issue #123
+ao spawn clasper-core 123       # with GitHub issue #123 (when tracker is github)
+ao spawn clasper-core INT-456   # with Linear ticket INT-456 (when tracker is linear)
 ```
+
+Use the **issue identifier your tracker expects**: GitHub issue number (e.g. `123` or `#123`) when the project uses the GitHub tracker, or **Linear ticket ID** (e.g. `INT-456`) when the project uses the Linear tracker. The project’s tracker is set in `agent-orchestrator.yaml` (see **Linear** below).
 
 Output includes the **session id** (e.g. `clasper-1`) and how to attach:
 
@@ -126,8 +136,9 @@ Use the session name from `ao spawn` output or from `tmux list-sessions`. Detach
 
 | What you want              | Command |
 |----------------------------|--------|
-| Start server (with env)    | `cd ~/workspace/agent-orchestrator && set -a && source .env.local && set +a && ao start clasper-core` |
-| Spawn agent                | `ao spawn clasper-core` or `ao spawn clasper-core <issue#>` |
+| Start server (with env)    | `make start-clasper` or `make start` |
+| Spawn agent (with env)     | `make spawn PROJECT=clasper-core ISSUE=CLA-5` |
+| Any ao command with env   | `make run CMD="ao status"` (or `ao session ls`, etc.) |
 | Send short task            | `ao send --no-wait clasper-1 "Your task here"` |
 | Send markdown spec         | `ao send --no-wait clasper-1 --file path/to/spec.md` |
 | See status                 | `ao status` |
@@ -142,3 +153,25 @@ Use the session name from `ao spawn` output or from `tmux list-sessions`. Detach
 - **Always run `ao` from the directory that contains `agent-orchestrator.yaml`** (typically the agent-orchestrator repo).
 - **Use `--no-wait`** with `ao send` so the message is delivered and submitted without waiting for "idle"; otherwise the send can block.
 - **Codex API key:** To avoid the Codex login prompt, start the server with `OPENAI_API_KEY` in the environment (e.g. `source .env.local` before `ao start`). The codex plugin forwards it into the session.
+
+### Linear tracker
+
+If you added a Linear API key and use the Linear tracker for a project:
+
+1. **Config:** In `agent-orchestrator.yaml`, set the project’s tracker and ensure the server has the key at startup:
+   ```yaml
+   projects:
+     clasper-core:
+       # ...
+       tracker:
+         plugin: linear
+         teamId: "your-linear-team-uuid"
+   ```
+   Put `LINEAR_API_KEY` in `.env.local` and start with `make start-clasper` (or `make run CMD="ao start clasper-core"`) so the server has the key.
+
+2. **Spawn by Linear ticket:** Use the Linear issue identifier (e.g. `INT-456`), not a GitHub issue number:
+   ```bash
+   ao spawn clasper-core INT-456
+   ```
+
+3. **Everything else is the same:** `ao send`, `ao status`, `ao session ls`, and attaching via tmux work as before. The agent gets the Linear ticket title and description as context, branches are named `feat/INT-456`, and the dashboard shows the Linear issue link.

@@ -44,7 +44,9 @@ export default async function Home() {
     }
 
     // Filter out orchestrator from worker sessions
-    const coreSessions = allSessions.filter((s) => !s.id.endsWith("-orchestrator"));
+    const coreSessions = allSessions.filter(
+      (s) => !s.id.endsWith("-orchestrator"),
+    );
     sessions = coreSessions.map(sessionToDashboard);
 
     // Enrich metadata (issue labels, agent summaries, issue titles) — cap at 3s
@@ -109,6 +111,11 @@ export default async function Home() {
   }
 
   return (
-    <Dashboard sessions={sessions} stats={computeStats(sessions)} orchestratorId={orchestratorId} projectName={projectName} />
+    <Dashboard
+      sessions={sessions}
+      stats={computeStats(sessions)}
+      orchestratorId={orchestratorId}
+      projectName={projectName}
+    />
   );
 }

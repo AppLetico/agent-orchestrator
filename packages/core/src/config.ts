@@ -55,6 +55,7 @@ const AgentSpecificConfigSchema = z
   .object({
     permissions: z.enum(["skip", "default"]).default("skip"),
     model: z.string().optional(),
+    orchestratorModel: z.string().optional(),
   })
   .passthrough();
 
@@ -79,6 +80,7 @@ const ProjectConfigSchema = z.object({
   agentRules: z.string().optional(),
   agentRulesFile: z.string().optional(),
   orchestratorRules: z.string().optional(),
+  projectMemoryFile: z.string().optional(),
 });
 
 const DefaultPluginsSchema = z.object({

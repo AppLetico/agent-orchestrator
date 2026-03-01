@@ -327,6 +327,7 @@ export interface Agent {
 export interface AgentLaunchConfig {
   sessionId: SessionId;
   projectConfig: ProjectConfig;
+  role?: "worker" | "orchestrator";
   issueId?: string;
   prompt?: string;
   permissions?: "skip" | "default";
@@ -894,6 +895,9 @@ export interface ProjectConfig {
 
   /** Rules for the orchestrator agent (stored, reserved for future use) */
   orchestratorRules?: string;
+
+  /** Shared project memory file path (relative to project path) */
+  projectMemoryFile?: string;
 }
 
 export interface TrackerConfig {

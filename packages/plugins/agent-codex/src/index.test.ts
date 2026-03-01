@@ -213,32 +213,9 @@ describe("getLaunchCommand", () => {
     expect(agent.getLaunchCommand(makeLaunchConfig())).toBe("'codex'");
   });
 
-  it("includes --dangerously-bypass-approvals-and-sandbox when permissions=skip", () => {
+  it("includes --yolo when permissions=skip", () => {
     const cmd = agent.getLaunchCommand(makeLaunchConfig({ permissions: "skip" }));
-    expect(cmd).toContain("--dangerously-bypass-approvals-and-sandbox");
-    expect(cmd).not.toContain("--full-auto");
-  });
-
-  it("includes --ask-for-approval never when permissions=auto-edit", () => {
-    // Cast needed: "auto-edit" not yet in AgentLaunchConfig type union
-    const cmd = agent.getLaunchCommand(
-      makeLaunchConfig({ permissions: "auto-edit" as AgentLaunchConfig["permissions"] }),
-    );
-    expect(cmd).toContain("--ask-for-approval never");
-  });
-
-  it("includes --ask-for-approval untrusted when permissions=suggest", () => {
-    const cmd = agent.getLaunchCommand(
-      makeLaunchConfig({ permissions: "suggest" as AgentLaunchConfig["permissions"] }),
-    );
-    expect(cmd).toContain("--ask-for-approval untrusted");
-  });
-
-  it("omits approval flags when permissions=default", () => {
-    const cmd = agent.getLaunchCommand(makeLaunchConfig({ permissions: "default" }));
-    expect(cmd).not.toContain("--dangerously-bypass-approvals-and-sandbox");
-    expect(cmd).not.toContain("--ask-for-approval");
-    expect(cmd).not.toContain("--full-auto");
+    expect(cmd).toContain("--yolo");
   });
 
   it("includes --model with shell-escaped value", () => {
@@ -255,7 +232,7 @@ describe("getLaunchCommand", () => {
     const cmd = agent.getLaunchCommand(
       makeLaunchConfig({ permissions: "skip", model: "o3", prompt: "Go" }),
     );
-    expect(cmd).toBe("'codex' --dangerously-bypass-approvals-and-sandbox --model 'o3' -c model_reasoning_effort=high -- 'Go'");
+    expect(cmd).toBe("codex --yolo --model 'o3' -- 'Go'");
   });
 
   it("escapes single quotes in prompt (POSIX shell escaping)", () => {
@@ -291,8 +268,7 @@ describe("getLaunchCommand", () => {
 
   it("omits optional flags when not provided", () => {
     const cmd = agent.getLaunchCommand(makeLaunchConfig());
-    expect(cmd).not.toContain("--dangerously-bypass-approvals-and-sandbox");
-    expect(cmd).not.toContain("--ask-for-approval");
+    expect(cmd).not.toContain("--yolo");
     expect(cmd).not.toContain("--model");
     expect(cmd).not.toContain("-c");
     expect(cmd).not.toContain("model_reasoning_effort");
